@@ -22,35 +22,47 @@ class CreateOrderService {
   constructor(
     @inject('OrdersRepository')
     private ordersRepository: IOrdersRepository,
-
     @inject('ProductsRepository')
     private productsRepository: IProductsRepository,
-
     @inject('CustomersRepository')
     private customersRepository: ICustomersRepository,
   ) {}
 
   public async execute({ customer_id, products }: IRequest): Promise<Order> {
-    // TODO
-    const customerExists = await this.customersRepository.findById(customer_id);
-    if (!customerExists) throw new AppError('Customer does not existing.');
+    const custumerExists = await this.customersRepository.findById(customer_id);
 
+    if (!custumerExists) {
+      throw new AppError('Could not find any customer with the gives id');
+    }
+
+    // Procura todos meus Ids no banco
     const existentProducts = await this.productsRepository.findAllById(
       products,
     );
 
+    // Se não retornar nada caio no erro
     if (!existentProducts.length) {
-      throw new AppError('Could not find any products with the given ids.');
+      throw new AppError('Could not find any products with the given ids');
     }
 
-    const exitentProductsIds = existentProducts.map(p => p.id);
+    // Suponhando que o usuário passe Id 1 e 2, e ele só me retorne 1, quer dizer que o
+    // 2 não é válido, então preciso saber, quais products ids
+    // são válidos ou não.
 
+    // Pego todos os Ids(válidos) que o banco me retornou
+    const existentProductsIds = existentProducts.map(product => product.id);
+
+    // Se o existentProductsIds não tiver algum product.id
+    // que o usuário passar, quer dizer que ele está passando
+    // um id inválido
     const checkInexistentProducts = products.filter(
-      product => !exitentProductsIds.includes(product.id),
+      product => !existentProductsIds.includes(product.id),
     );
 
     if (checkInexistentProducts.length) {
-      throw new AppError(`Could not find products with the given .`);
+      throw new AppError(
+        `Could not find product ${checkInexistentProducts[0].id}`,
+      );
     }
 
     const findProductsWithNoQuantityAvailable = products.filter(
@@ -60,30 +72,32 @@ class CreateOrderService {
     );
 
     if (findProductsWithNoQuantityAvailable.length) {
-      throw new AppError(`The quantity is not available`);
+      throw new AppError(
+        `The quantity ${findProductsWithNoQuantityAvailable[0].quantity} is not available for ${findProductsWithNoQuantityAvailable[0].id}`,
+      );
     }
 
-    const sarializedProducts = products.map(product => ({
+    const serializedProducts = products.map(product => ({
       product_id: product.id,
       quantity: product.quantity,
       price: existentProducts.filter(p => p.id === product.id)[0].price,
     }));
 
     const order = await this.ordersRepository.create({
-      customer: customerExists,
-      products: sarializedProducts,
+      customer: custumerExists,
+      products: serializedProducts,
     });
 
     const { order_products } = order;
 
-    const order_productsQuantity = order_products.map(product => ({
+    const orderedProductsQuantity = order_products.map(product => ({
       id: product.product_id,
       quantity:
         existentProducts.filter(p => p.id === product.product_id)[0].quantity -
         product.quantity,
     }));
 
-    await this.productsRepository.updateQuantity(order_productsQuantity);
+    await this.productsRepository.updateQuantity(orderedProductsQuantity);
 
     return order;
   }
